@@ -175,11 +175,23 @@ function buildQCard(q, opts) {
       else { selected.add(k); optEls[k].classList.add('sel'); }
       submitBtn.style.display = 'inline-block';
       submitBtn.disabled = selected.size === 0;
+      if (opts.onSelect) opts.onSelect([...selected].sort().join(''));
     } else {
       selected = new Set([k]);
       letters.forEach(x => optEls[x].classList.remove('sel'));
       optEls[k].classList.add('sel');
       grade();
+    }
+  }
+
+  /* pre-selected (multi partially answered earlier, not yet submitted) */
+  if (opts.preselected) {
+    [...String(opts.preselected)].forEach(k => {
+      if (optEls[k]) { selected.add(k); optEls[k].classList.add('sel'); }
+    });
+    if (q.type === '多选题' && selected.size > 0) {
+      submitBtn.style.display = 'inline-block';
+      submitBtn.disabled = false;
     }
   }
 
@@ -289,7 +301,9 @@ let examState = null;
 function viewExamRun() {
   examState = {
     list: EXAM_CFG.flatMap(([t, n]) => shuffle(pools[t]).slice(0, n)),
-    idx: 0, correct: 0, detail: [],
+    idx: 0, correct: 0,
+    ans: [],            // ans[i] = {user, ok, done:true} 已作答 | {user, done:false} 多选已选未交 | undefined 未碰
+    sheetOpen: true,
   };
   renderExamQ();
 }
@@ -298,39 +312,135 @@ function renderExamQ() {
   const s = examState;
   const d = el('div');
   d.appendChild(pageHead('模拟考试', '第 ' + (s.idx + 1) + ' / ' + s.list.length + ' 题', '#/exam', '退出'));
+
   const prog = el('div', 'progress-outer');
   const inner = el('div', 'progress-inner');
-  inner.style.width = (s.idx / s.list.length * 100) + '%';
   prog.appendChild(inner);
   d.appendChild(prog);
-  d.appendChild(el('div', 'progress-label', '已答 ' + s.idx + ' · 答对 ' + s.correct));
+  const progLabel = el('div', 'progress-label');
+  d.appendChild(progLabel);
+
+  /* ---- answer sheet: click any number to jump ---- */
+  const sheet = el('div', 'sheet');
+  const head = el('div', 'sheet-head');
+  head.appendChild(el('span', 'sheet-title', '答题卡 · 点击题号跳转'));
+  const tg = el('button', 'btn small');
+  tg.type = 'button';
+  tg.textContent = s.sheetOpen ? '收起' : '展开';
+  tg.addEventListener('click', () => {
+    s.sheetOpen = !s.sheetOpen;
+    gridBox.style.display = s.sheetOpen ? '' : 'none';
+    legend.style.display = s.sheetOpen ? '' : 'none';
+    caption.style.display = s.sheetOpen ? '' : 'none';
+    tg.textContent = s.sheetOpen ? '收起' : '展开';
+  });
+  head.appendChild(tg);
+  sheet.appendChild(head);
+  const gridBox = el('div', 'sheet-grid');
+  const cells = [];
+  s.list.forEach((qq, i) => {
+    const c = el('button', 'sheet-num');
+    c.type = 'button';
+    c.textContent = i + 1;
+    c.addEventListener('click', () => { s.idx = i; renderExamQ(); });
+    cells.push(c);
+    gridBox.appendChild(c);
+  });
+  sheet.appendChild(gridBox);
+  let acc = 0;
+  const bounds = EXAM_CFG.map(([t, n]) => { const r = (acc + 1) + '–' + (acc + n) + ' ' + t; acc += n; return r; });
+  const caption = el('div', 'sheet-caption', bounds.join(' · '));
+  const legend = el('div', 'sheet-legend');
+  [['ok', '已答对'], ['bad', '已答错'], ['part', '已选未交'], ['none', '未作答'], ['cur', '当前题']].forEach(([k, t]) => {
+    const sp = el('span');
+    sp.appendChild(el('i', 'lg-' + k));
+    sp.appendChild(document.createTextNode(t));
+    legend.appendChild(sp);
+  });
+  sheet.appendChild(caption);
+  sheet.appendChild(legend);
+  if (!s.sheetOpen) { gridBox.style.display = 'none'; legend.style.display = 'none'; caption.style.display = 'none'; }
+  d.appendChild(sheet);
+
+  function updateBar() {
+    const answered = s.ans.filter(a => a && a.done).length;
+    progLabel.textContent = '已答 ' + answered + ' / ' + s.list.length + ' · 答对 ' + s.correct;
+    inner.style.width = (answered / s.list.length * 100) + '%';
+    cells.forEach((c, i) => {
+      c.classList.remove('cur', 'ok', 'bad', 'part');
+      const a = s.ans[i];
+      if (i === s.idx) c.classList.add('cur');
+      if (a && a.done) c.classList.add(a.ok ? 'ok' : 'bad');
+      else if (a) c.classList.add('part');
+    });
+  }
 
   const q = s.list[s.idx];
+  const st = s.ans[s.idx];
   const card = buildQCard(q, {
+    initial: (st && st.done) ? { user: st.user, ok: st.ok } : null,
+    preselected: (st && !st.done) ? st.user : '',
+    onSelect(user) {
+      s.ans[s.idx] = { user, done: false };
+      updateBar();
+    },
     onAnswer(user, ok) {
-      s.detail.push({ qid: q.id, user, ok });
+      s.ans[s.idx] = { user, ok, done: true };
       if (ok) s.correct++;
       else addWrong(q.id);
+      updateBar();
     },
     nextText: s.idx + 1 < s.list.length ? '下一题' : '交卷',
     onNext() {
       s.idx++;
       if (s.idx < s.list.length) renderExamQ();
-      else finishExam();
+      else tryFinish();
     },
   });
   d.appendChild(card);
+
+  /* ---- bottom nav: prev / next / submit ---- */
+  const bar = el('div', 'exam-nav');
+  const prevB = el('button', 'btn');
+  prevB.textContent = '← 上一题';
+  prevB.disabled = s.idx === 0;
+  prevB.addEventListener('click', () => { s.idx--; renderExamQ(); });
+  const nextB = el('button', 'btn');
+  nextB.textContent = '下一题 →';
+  nextB.disabled = s.idx + 1 >= s.list.length;
+  nextB.addEventListener('click', () => { s.idx++; renderExamQ(); });
+  const finB = el('button', 'btn primary');
+  finB.textContent = '交卷';
+  finB.addEventListener('click', tryFinish);
+  bar.appendChild(prevB); bar.appendChild(nextB); bar.appendChild(finB);
+  d.appendChild(bar);
+
+  updateBar();
   view(d);
+}
+
+function tryFinish() {
+  const s = examState;
+  if (!s) return;
+  const answered = s.ans.filter(a => a && a.done).length;
+  const left = s.list.length - answered;
+  if (left > 0 && !confirm('还有 ' + left + ' 题未作答，确定交卷吗？')) return;
+  finishExam();
 }
 
 function finishExam() {
   const s = examState;
+  const detail = s.list.map((q, i) => {
+    const a = s.ans[i];
+    return (a && a.done) ? { qid: q.id, user: a.user, ok: a.ok }
+                         : { qid: q.id, user: '', ok: false };
+  });
   const rec = {
-    id: 'e' + Date.now(),
+    id: 'e' + Date.now() + '-' + Math.floor(Math.random() * 1e6),
     time: Date.now(),
     score: s.correct,
     total: s.list.length,
-    detail: s.detail,
+    detail,
   };
   addExam(rec);
   const d = el('div');
