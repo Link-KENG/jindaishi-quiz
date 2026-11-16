@@ -461,7 +461,8 @@ function finishExam() {
   box.appendChild(el('div', 'msg', msg));
   box.appendChild(el('div', 'detail', '正确率 ' + pct + '% · 已自动保存到考试记录，错题已加入错题本'));
   const actions = el('div', 'result-actions');
-  const again = el('a', 'btn primary'); again.href = '#/exam/run'; again.textContent = '再来一套';
+  const again = el('button', 'btn primary'); again.textContent = '再来一套';
+  again.addEventListener('click', () => viewExamRun());
   const recBtn = el('a', 'btn'); recBtn.href = '#/record/' + rec.id; recBtn.textContent = '查看本卷';
   const home = el('a', 'btn'); home.href = '#/'; home.textContent = '返回首页';
   actions.appendChild(again); actions.appendChild(recBtn); actions.appendChild(home);
@@ -584,7 +585,7 @@ function viewBank() {
 /* ---- chapters ---- */
 function viewChapters() {
   const d = el('div');
-  d.appendChild(pageHead('分章节题库', '按教材章节逐章刷题。', '#/', '首页'));
+  d.appendChild(pageHead('分章节题库', '逐章闯关：答对自动跳下一题，答错看解析后手动下一题，可回看上一题。', '#/', '首页'));
   const counts = {};
   QUESTIONS.forEach(q => { const c = chapterName(q.chapter); counts[c] = (counts[c] || 0) + 1; });
   const grid = el('div', 'ch-grid');
@@ -600,60 +601,152 @@ function viewChapters() {
   view(d);
 }
 
+/* ---- chapter walkthrough (闯关模式：一题一屏，答对自动跳，答错手动跳，可回看) ---- */
+let chapterState = null;
+let chapterTimer = null;
+
 function viewChapter(name) {
-  const d = el('div');
-  d.appendChild(pageHead(name, '本章共 ' + QUESTIONS.filter(q => chapterName(q.chapter) === name).length + ' 题。', '#/chapters', '分章节'));
-  const listBox = el('div');
   const qs = QUESTIONS.filter(q => chapterName(q.chapter) === name);
-  let shown = 0;
-  const PAGE = 50;
-  function renderPage() {
-    const slice = qs.slice(shown, shown + PAGE);
-    slice.forEach(q => renderItem(q, listBox));
-    shown += slice.length;
-    let more = listBox.querySelector('.load-more');
-    if (more) more.remove();
-    if (shown < qs.length) {
-      const w = el('div', 'load-more');
-      const b = el('button', 'btn');
-      b.textContent = '加载更多（' + shown + '/' + qs.length + '）';
-      b.addEventListener('click', renderPage);
-      w.appendChild(b);
-      listBox.appendChild(w);
-    }
-  }
-  function renderItem(q, box) {
-    const item = el('div', 'bank-item');
-    const tm = TYPE_META[q.type];
-    const strip = el('div', 'q-meta');
-    strip.appendChild(el('span', 'chip ' + tm.cls, tm.label));
-    item.appendChild(strip);
-    item.appendChild(el('div', 'stem', q.stem));
-    const openBox = el('div', 'bank-open');
-    openBox.style.display = 'none';
-    item.appendChild(openBox);
-    item.addEventListener('click', e => {
-      if (e.target.closest('.opt') || e.target.closest('.btn') || e.target.closest('.feedback')) return;
-      const isOpen = item.classList.contains('open');
-      item.classList.toggle('open');
-      if (!isOpen && !openBox.firstChild) {
-        openBox.style.display = 'block';
-        openBox.appendChild(buildQCard(q, {
-          initial: sessionState.get(q.id),
-          onAnswer(user, ok) {
-            sessionState.set(q.id, { user, ok });
-            rememberState();
-            if (ok) removeWrong(q.id); else addWrong(q.id);
-          },
-        }));
-      }
-      openBox.style.display = item.classList.contains('open') ? 'block' : 'none';
+  chapterState = {
+    name, list: qs, idx: 0,
+    ans: [], correct: 0,
+    sheetOpen: false,
+  };
+  renderChapterQ();
+}
+
+function renderChapterQ() {
+  if (chapterTimer) { clearTimeout(chapterTimer); chapterTimer = null; }
+  const s = chapterState;
+  const d = el('div');
+  d.appendChild(pageHead(s.name, '第 ' + (s.idx + 1) + ' / ' + s.list.length + ' 题 · 答对自动跳下一题', '#/chapters', '分章节'));
+
+  const prog = el('div', 'progress-outer');
+  const inner = el('div', 'progress-inner');
+  prog.appendChild(inner);
+  d.appendChild(prog);
+  const progLabel = el('div', 'progress-label');
+  d.appendChild(progLabel);
+
+  const q = s.list[s.idx];
+  const st = s.ans[s.idx];
+  const card = buildQCard(q, {
+    initial: (st && st.done) ? { user: st.user, ok: st.ok } : null,
+    preselected: (st && !st.done) ? st.user : '',
+    onSelect(user) { s.ans[s.idx] = { user, done: false }; updateBar(); },
+    onAnswer(user, ok) {
+      s.ans[s.idx] = { user, ok, done: true };
+      if (ok) s.correct++;
+      else addWrong(q.id);
+      updateBar();
+      if (ok) chapterTimer = setTimeout(() => advanceChapter(), 800);
+    },
+    nextText: s.idx + 1 < s.list.length ? '下一题' : '完成本章',
+    onNext() { advanceChapter(); },
+  });
+  d.appendChild(card);
+
+  /* ---- answer sheet: below question, expandable ---- */
+  const sheet = el('div', 'sheet');
+  const head = el('div', 'sheet-head');
+  head.appendChild(el('span', 'sheet-title', '答题卡 · 点击题号跳转'));
+  const tg = el('button', 'btn small');
+  tg.type = 'button';
+  tg.textContent = s.sheetOpen ? '收起答题卡' : '展开答题卡';
+  tg.addEventListener('click', () => {
+    s.sheetOpen = !s.sheetOpen;
+    gridBox.style.display = s.sheetOpen ? '' : 'none';
+    legend.style.display = s.sheetOpen ? '' : 'none';
+    caption.style.display = s.sheetOpen ? '' : 'none';
+    tg.textContent = s.sheetOpen ? '收起答题卡' : '展开答题卡';
+  });
+  head.appendChild(tg);
+  sheet.appendChild(head);
+  const gridBox = el('div', 'sheet-grid');
+  const cells = [];
+  s.list.forEach((qq, i) => {
+    const c = el('button', 'sheet-num');
+    c.type = 'button';
+    c.textContent = i + 1;
+    c.addEventListener('click', () => { s.idx = i; renderChapterQ(); });
+    cells.push(c);
+    gridBox.appendChild(c);
+  });
+  sheet.appendChild(gridBox);
+  const caption = el('div', 'sheet-caption', '共 ' + s.list.length + ' 题');
+  const legend = el('div', 'sheet-legend');
+  [['ok', '已答对'], ['bad', '已答错'], ['part', '已选未交'], ['none', '未作答'], ['cur', '当前题']].forEach(([k, t]) => {
+    const sp = el('span');
+    sp.appendChild(el('i', 'lg-' + k));
+    sp.appendChild(document.createTextNode(t));
+    legend.appendChild(sp);
+  });
+  sheet.appendChild(caption);
+  sheet.appendChild(legend);
+  if (!s.sheetOpen) { gridBox.style.display = 'none'; legend.style.display = 'none'; caption.style.display = 'none'; }
+  d.appendChild(sheet);
+
+  /* ---- bottom nav ---- */
+  const bar = el('div', 'exam-nav');
+  const prevB = el('button', 'btn');
+  prevB.textContent = '← 上一题';
+  prevB.disabled = s.idx === 0;
+  prevB.addEventListener('click', () => { s.idx--; renderChapterQ(); });
+  const nextB = el('button', 'btn');
+  nextB.textContent = '下一题 →';
+  nextB.addEventListener('click', () => advanceChapter());
+  bar.appendChild(prevB); bar.appendChild(nextB);
+  d.appendChild(bar);
+
+  function updateBar() {
+    const answered = s.ans.filter(a => a && a.done).length;
+    progLabel.textContent = '已答 ' + answered + ' / ' + s.list.length + ' · 答对 ' + s.correct;
+    inner.style.width = (answered / s.list.length * 100) + '%';
+    cells.forEach((c, i) => {
+      c.classList.remove('cur', 'ok', 'bad', 'part');
+      const a = s.ans[i];
+      if (i === s.idx) c.classList.add('cur');
+      if (a && a.done) c.classList.add(a.ok ? 'ok' : 'bad');
+      else if (a) c.classList.add('part');
     });
-    box.appendChild(item);
   }
-  renderPage();
-  d.appendChild(listBox);
+
+  updateBar();
   view(d);
+}
+
+function advanceChapter() {
+  if (!chapterState || !location.hash.startsWith('#/chapter/')) return;
+  const s = chapterState;
+  s.idx++;
+  if (s.idx < s.list.length) renderChapterQ();
+  else renderChapterDone();
+}
+
+function renderChapterDone() {
+  const s = chapterState;
+  const answered = s.ans.filter(a => a && a.done).length;
+  const d = el('div');
+  d.appendChild(pageHead(s.name, null, '#/chapters', '分章节'));
+  const box = el('div', 'result-box');
+  box.appendChild(el('div', 'score', String(s.correct)));
+  const frac = el('div', 'score');
+  frac.appendChild(el('small', '', ' / 已答 ' + answered + ' 题 · 本章共 ' + s.list.length + ' 题'));
+  box.appendChild(frac);
+  let msg = '本章刷完！错题已自动加入错题本。';
+  if (answered > 0 && s.correct === answered) msg = '全对通关，非常优秀！';
+  box.appendChild(el('div', 'msg', msg));
+  const actions = el('div', 'result-actions');
+  const again = el('button', 'btn primary');
+  again.textContent = '重新刷本章';
+  again.addEventListener('click', () => viewChapter(s.name));
+  const wrongsBtn = el('a', 'btn'); wrongsBtn.href = '#/wrongs'; wrongsBtn.textContent = '去错题本';
+  const home = el('a', 'btn'); home.href = '#/'; home.textContent = '返回首页';
+  actions.appendChild(again); actions.appendChild(wrongsBtn); actions.appendChild(home);
+  box.appendChild(actions);
+  d.appendChild(box);
+  view(d);
+  chapterState = null;
 }
 
 /* ---- wrongs ---- */
