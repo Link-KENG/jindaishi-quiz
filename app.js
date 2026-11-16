@@ -12,7 +12,7 @@ QUESTIONS.forEach(q => pools[q.type].push(q));
 
 const CHAPTER_ORDER = ['导言'];
 for (let i = 1; i <= 10; i++) CHAPTER_ORDER.push('第' + '一二三四五六七八九十'[i - 1] + '章');
-CHAPTER_ORDER.push('二十大', '综合补充', '其他');
+CHAPTER_ORDER.push('二十大', '2026', '综合补充', '其他');
 function chapterName(ch) { return ch || '其他'; }
 
 const TYPE_META = {
@@ -256,6 +256,7 @@ function viewHome() {
   const grid = el('div', 'grid');
   const cards = [
     { href: '#/exam', primary: true, ico: '📝', h: '模拟考试', p: '100 题：60 单选 + 20 多选 + 20 判断，选完即出答案', badge: null },
+    { href: '#/chapter/2026', primary: false, ico: '🆕', h: '2026 题库', p: '2026 版单选新题，做一题出一答案', badge: QUESTIONS.filter(q => q.chapter === '2026').length },
     { href: '#/bank', primary: false, ico: '📚', h: '总题库', p: '全部题目，可按题型、章节筛选，随时刷', badge: null },
     { href: '#/chapters', primary: false, ico: '📖', h: '分章节题库', p: '按章节逐章突破', badge: null },
     { href: '#/wrongs', primary: false, ico: '🔖', h: '错题本', p: '重做错题，答对自动移出', badge: getWrongs().length },
@@ -360,7 +361,6 @@ function renderExamQ() {
   sheet.appendChild(caption);
   sheet.appendChild(legend);
   if (!s.sheetOpen) { gridBox.style.display = 'none'; legend.style.display = 'none'; caption.style.display = 'none'; }
-  d.appendChild(sheet);
 
   function updateBar() {
     const answered = s.ans.filter(a => a && a.done).length;
@@ -398,6 +398,9 @@ function renderExamQ() {
     },
   });
   d.appendChild(card);
+
+  /* ---- answer sheet: below the question ---- */
+  d.appendChild(sheet);
 
   /* ---- bottom nav: prev / next / submit ---- */
   const bar = el('div', 'exam-nav');
