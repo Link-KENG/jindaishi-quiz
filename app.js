@@ -255,7 +255,7 @@ function viewHome() {
 
   const grid = el('div', 'grid');
   const cards = [
-    { href: '#/exam', primary: true, ico: '📝', h: '模拟考试', p: '100 题：60 单选 + 20 多选 + 20 判断，选完即出答案', badge: null },
+    { href: '#/exam', primary: true, ico: '📝', h: '模拟考试', p: '2026 题库随机组卷 100 题：60 单选 + 20 多选 + 20 判断', badge: null },
     { href: '#/chapter/2026单选', primary: false, ico: '①', h: '2026 单选', p: '2026 版单选题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026单选').length },
     { href: '#/chapter/2026多选', primary: false, ico: '②', h: '2026 多选', p: '2026 版多选题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026多选').length },
     { href: '#/chapter/2026判断题', primary: false, ico: '③', h: '2026 判断', p: '2026 版判断题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026判断题').length },
@@ -281,10 +281,10 @@ function viewHome() {
 /* ---- exam ---- */
 function viewExamIntro() {
   const d = el('div');
-  d.appendChild(pageHead('模拟考试', '随机组卷，选完即出答案；交卷后自动保存成绩，错题自动进入错题本。', '#/', '首页'));
+  d.appendChild(pageHead('模拟考试', '仅从 2026 题库随机组卷，选完即出答案；交卷后自动保存成绩，错题自动进入错题本。', '#/', '首页'));
   const box = el('div', 'q-card');
-  box.appendChild(el('p', 'q-stem', '试卷构成'));
-  ['单选题 60 题', '多选题 20 题', '判断题 20 题'].forEach(t => {
+  box.appendChild(el('p', 'q-stem', '试卷构成（只出 2026 题库的题）'));
+  ['单选题 60 题（出自 2026 单选）', '多选题 20 题（出自 2026 多选）', '判断题 20 题（出自 2026 判断）'].forEach(t => {
     box.appendChild(el('p', '', '· ' + t));
   });
   box.appendChild(el('p', 'q-hint', '共 100 题。答题过程中立即显示对错与解析，全部完成后出总分。'));
@@ -303,7 +303,7 @@ let examState = null;
 
 function viewExamRun() {
   examState = {
-    list: EXAM_CFG.flatMap(([t, n]) => shuffle(pools[t]).slice(0, n)),
+    list: EXAM_CFG.flatMap(([t, n]) => shuffle(pools[t].filter(q => (q.chapter || '').startsWith('2026'))).slice(0, n)),
     idx: 0, correct: 0,
     ans: [],            // ans[i] = {user, ok, done:true} 已作答 | {user, done:false} 多选已选未交 | undefined 未碰
     sheetOpen: true,
