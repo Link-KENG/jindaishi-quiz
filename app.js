@@ -12,7 +12,7 @@ QUESTIONS.forEach(q => pools[q.type].push(q));
 
 const CHAPTER_ORDER = ['导言'];
 for (let i = 1; i <= 10; i++) CHAPTER_ORDER.push('第' + '一二三四五六七八九十'[i - 1] + '章');
-CHAPTER_ORDER.push('二十大', '2026单选', '2026多选', '2026判断题', '综合补充', '其他');
+CHAPTER_ORDER.push('二十大', '2026单选', '2026单选易错题', '2026多选', '2026判断题', '综合补充', '其他');
 function chapterName(ch) { return ch || '其他'; }
 
 const TYPE_META = {
@@ -257,6 +257,7 @@ function viewHome() {
   const cards = [
     { href: '#/exam', primary: true, ico: '📝', h: '模拟考试', p: '2026 题库随机组卷 100 题：60 单选 + 20 多选 + 20 判断', badge: null },
     { href: '#/chapter/2026单选', primary: false, ico: '①', h: '2026 单选', p: '2026 版单选题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026单选').length },
+    { href: '#/chapter/2026单选易错题', primary: false, ico: '⚠️', h: '2026 易错单选', p: '从 2026 单选筛出的易错题', badge: QUESTIONS.filter(q => q.chapter === '2026单选易错题').length },
     { href: '#/chapter/2026多选', primary: false, ico: '②', h: '2026 多选', p: '2026 版多选题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026多选').length },
     { href: '#/chapter/2026判断题', primary: false, ico: '③', h: '2026 判断', p: '2026 版判断题库，逐题闯关', badge: QUESTIONS.filter(q => q.chapter === '2026判断题').length },
     { href: '#/bank', primary: false, ico: '📚', h: '总题库', p: '全部题目，可按题型、章节筛选，随时刷', badge: null },
@@ -299,11 +300,12 @@ function viewExamIntro() {
 }
 
 const EXAM_CFG = [['单选题', 60], ['多选题', 20], ['判断题', 20]];
+const EXAM_CHAPTERS = ['2026单选', '2026多选', '2026判断题'];
 let examState = null;
 
 function viewExamRun() {
   examState = {
-    list: EXAM_CFG.flatMap(([t, n]) => shuffle(pools[t].filter(q => (q.chapter || '').startsWith('2026'))).slice(0, n)),
+    list: EXAM_CFG.flatMap(([t, n]) => shuffle(pools[t].filter(q => EXAM_CHAPTERS.includes(q.chapter))).slice(0, n)),
     idx: 0, correct: 0,
     ans: [],            // ans[i] = {user, ok, done:true} 已作答 | {user, done:false} 多选已选未交 | undefined 未碰
     sheetOpen: true,
